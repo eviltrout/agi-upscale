@@ -7,6 +7,7 @@ Bundler.require(:default)
 
 require './constants'
 require './helpers'
+require './pic_path'
 require './pic_loader'
 require './pic_renderer'
 
@@ -16,7 +17,8 @@ loader.setup
 cmds = loader.load((ARGV[0] || '1').to_i)
 renderer = PicRenderer.new(cmds)
 renderer.render
-renderer.write(output_width: 1000)
+renderer.write(width: 1000)
+renderer.write_vector(width: 1000)
 
 # puts "id,cmds_size,col_size,pri_size"
 # loader.db.keys.each do |id|

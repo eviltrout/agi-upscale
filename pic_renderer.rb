@@ -13,12 +13,15 @@ class PicRenderer
     @pic_target = ChunkyPNG::Image.new(X_SIZE, Y_SIZE, PicRenderer.white)
     @pri_target = ChunkyPNG::Image.new(X_SIZE, Y_SIZE, PicRenderer.red)
 
+    @paths = []
+    @fills = []
     @draw_pic = true
     @draw_pri = false
 
+    @current_path = nil
     @cmds = cmds
     @ip = 0
-    @pic_color = ChunkyPNG::Color.rgba(0, 0, 0, 0)
+    @pic_color = 0
     @x = 0
     @y = 0
   end
@@ -31,11 +34,22 @@ class PicRenderer
     @cmds[@ip] < 0xf0
   end
 
+  def end_path
+    @paths << @current_path if @current_path
+    @current_path = nil
+  end
+
+  def start_path
+    end_path
+    @current_path = PicPath.new(@pic_color, @x, @y)
+  end
+
   def render
     while @ip < @cmds.size
+      end_path
       case @cmds[@ip]
       when CMDS[:pic_color]
-        @pic_color = ChunkyPNG::Color.from_hex(COLORS[@cmds[@ip + 1]])
+        @pic_color = @cmds[@ip + 1]
         @draw_pic = true
         @ip += 2
       when CMDS[:disable_pic]
@@ -100,7 +114,7 @@ class PicRenderer
 
   def pset(x, y)
     return if x < 0 || y < 0 || x >= X_SIZE || y >= Y_SIZE
-    @pic_target[x, y] = @pic_color if @draw_pic
+    @pic_target[x, y] = ChunkyPNG::Color.from_hex(COLORS[@pic_color]) if @draw_pic
     @pri_target[x, y] = @pri_color if @draw_pri
   end
 
@@ -136,6 +150,10 @@ class PicRenderer
 
   def fill(x, y)
     queue = [[x, y]]
+
+    bitmap = []
+    Y_SIZE.times { bitmap << Array.new(X_SIZE, 0) }
+
     while !queue.empty?
       x, y = queue.pop
 
@@ -143,7 +161,9 @@ class PicRenderer
         pic_val = @pic_target[x, y]
         next if @pic_color != PicRenderer.white && pic_val != PicRenderer.white
         next if @pic_color == PicRenderer.white && pic_val == PicRenderer.white
-        @pic_target[x, y] = @pic_color
+        bitmap[y][x] = 1
+
+        @pic_target[x, y] = ChunkyPNG::Color.from_hex(COLORS[@pic_color])
         queue << [x - 1, y] if x > 0
         queue << [x + 1, y] if x < X_SIZE - 1
         queue << [x, y - 1] if y > 0
@@ -160,12 +180,16 @@ class PicRenderer
         queue << [x, y - 1] if y > 0
         queue << [x, y + 1] if y < Y_SIZE - 1
       end
-
     end
+
+    @fills << [@pic_color, bitmap] if @draw_pic
   end
 
   def line_to(x, y)
+    start_path if @draw_pic && @current_path.nil?
+
     draw_line(@x, @y, x, y)
+    @current_path.add_point(x, y) if @draw_pic
     @x = x
     @y = y
   end
@@ -185,15 +209,75 @@ class PicRenderer
     end
   end
 
-  def write(output_width: 160)
-    output = @pic_target.dup
+  def height_for(width)
     ratio = Y_SIZE.to_f / X_SIZE.to_f
-    output.resample_nearest_neighbor!(
-      output_width,
-      (output_width * 0.5 * ratio).round
-    ) if output_width != 160
+    (width * 0.5 * ratio).round
+  end
+
+  def write(width: 160)
+    output = @pic_target.dup
+    output.resample_nearest_neighbor!(width, height_for(width)) if width != 160
     output.save("tmp.png")
-    # @pri_target.save("tmp.pri.png")
+  end
+
+  def write_vector(width: 1000)
+    x_scale = width.to_f / X_SIZE.to_f
+    y_scale = height_for(width).to_f / Y_SIZE.to_f
+
+    svg = Victor::SVG.new width: width, height: height_for(width), style: { background: '#fff' }
+
+    paths, fills = @paths, @fills
+
+    svg.build do
+      defs do
+        filter(id: 'bg-blur', x: 0, y: 0) do
+          svg.element 'feGaussianBlur', in: 'SourceGraphic', stdDeviation: 4
+        end
+      end
+
+      COLORS.each do |id, col|
+        css[".c-#{id} rect"] = { fill: col, stroke_width: 0 }
+        css[".c-#{id} line"] = { stroke: col, stroke_width: y_scale }
+      end
+
+      fills.each do |fill|
+        color, bitmap = fill
+
+        g(class: "c-#{color}", filter: 'url(#bg-blur)') do
+          (0...Y_SIZE).each do |y|
+            (0...X_SIZE).each do |x|
+              if bitmap[y][x] == 1
+                rect(
+                  x: (x * x_scale).floor,
+                  y: (y * y_scale).floor,
+                  width: x_scale.ceil,
+                  height: y_scale.ceil
+                )
+              end
+            end
+          end
+        end
+      end
+
+      paths.each do |path|
+        prev = path.points[0]
+        g(class: "c-#{path.color}") do
+          (1...path.points.size).each do |idx|
+            p = path.points[idx]
+
+            line(
+              x1: (prev[0] * x_scale),
+              y1: (prev[1] * y_scale),
+              x2: (p[0] * x_scale),
+              y2: (p[1] * y_scale)
+            )
+            prev = p
+          end
+        end
+      end
+    end
+
+    svg.save("vec.svg")
   end
 
 end
