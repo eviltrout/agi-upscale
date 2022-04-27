@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+X_SIZE = 160
+Y_SIZE = 168
+
 CMDS = {
   pic_color: 0xf0,
   disable_pic: 0xf1,
@@ -31,4 +34,3 @@ COLORS = {
   14 => "#ffff55",
   15 => "#ffffff"
 }
-

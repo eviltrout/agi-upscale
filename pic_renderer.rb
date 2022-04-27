@@ -99,6 +99,7 @@ class PicRenderer
   end
 
   def pset(x, y)
+    return if x < 0 || y < 0 || x >= X_SIZE || y >= Y_SIZE
     @pic_target[x, y] = @pic_color if @draw_pic
     @pri_target[x, y] = @pri_color if @draw_pri
   end
@@ -140,7 +141,8 @@ class PicRenderer
 
       if @draw_pic
         pic_val = @pic_target[x, y]
-        next if pic_val != PicRenderer.white
+        next if @pic_color != PicRenderer.white && pic_val != PicRenderer.white
+        next if @pic_color == PicRenderer.white && pic_val == PicRenderer.white
         @pic_target[x, y] = @pic_color
         queue << [x - 1, y] if x > 0
         queue << [x + 1, y] if x < X_SIZE - 1
@@ -183,11 +185,15 @@ class PicRenderer
     end
   end
 
-  def write
+  def write(output_width: 160)
     output = @pic_target.dup
     ratio = Y_SIZE.to_f / X_SIZE.to_f
-    output.resample_nearest_neighbor!(OUTPUT_WIDTH, (OUTPUT_WIDTH * 0.5 * ratio).round)
+    output.resample_nearest_neighbor!(
+      output_width,
+      (output_width * 0.5 * ratio).round
+    ) if output_width != 160
     output.save("tmp.png")
+    # @pri_target.save("tmp.pri.png")
   end
 
 end

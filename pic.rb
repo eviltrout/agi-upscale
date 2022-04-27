@@ -5,10 +5,6 @@ require 'bundler'
 
 Bundler.require(:default)
 
-X_SIZE = 160
-Y_SIZE = 168
-OUTPUT_WIDTH = 1000
-
 require './constants'
 require './helpers'
 require './pic_loader'
@@ -20,7 +16,19 @@ loader.setup
 cmds = loader.load((ARGV[0] || '1').to_i)
 renderer = PicRenderer.new(cmds)
 renderer.render
-renderer.write
+renderer.write(output_width: 1000)
 
-# puts "cmds size: #{cmds.size}"
-# puts "png size: #{File.size("tmp.png")}"
+# puts "id,cmds_size,col_size,pri_size"
+# loader.db.keys.each do |id|
+#   cmds = loader.load(id)
+#   renderer = PicRenderer.new(cmds)
+#   renderer.render
+#   renderer.write
+#
+#   %x{optipng tmp.png -quiet -o7}
+#   %x{optipng tmp.pri.png -quiet -o7}
+#   col_size = File.size("tmp.png")
+#   pri_size = File.size("tmp.pri.png")
+#
+#   puts "#{id},#{cmds.size},#{col_size},#{pri_size}"
+# end

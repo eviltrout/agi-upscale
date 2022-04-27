@@ -38,9 +38,7 @@ class PicLoader
   def load(id)
     pic_index = @db[id]
     return nil unless pic_index
-    puts "loading #{pic_index.inspect}..."
 
     volume_data(pic_index[:vol], pic_index[:offset]).unpack('C*')
   end
 end
-
