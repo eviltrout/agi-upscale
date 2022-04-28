@@ -34,3 +34,8 @@ COLORS = {
   14 => "#ffff55",
   15 => "#ffffff"
 }
+
+IM_COLORS = {}
+COLORS.each do |k, v|
+  IM_COLORS[k] = Magick::Pixel.from_color(v)
+end

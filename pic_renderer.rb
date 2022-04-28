@@ -1,17 +1,14 @@
 # frozen_string_literal: true
 
 class PicRenderer
-  def self.white
-    @white ||= ChunkyPNG::Color.from_hex(COLORS[15])
-  end
-
-  def self.red
-    @red ||= ChunkyPNG::Color.from_hex(COLORS[4])
-  end
 
   def initialize(cmds)
-    @pic_target = ChunkyPNG::Image.new(X_SIZE, Y_SIZE, PicRenderer.white)
-    @pri_target = ChunkyPNG::Image.new(X_SIZE, Y_SIZE, PicRenderer.red)
+    @pic_target = Magick::Image.new(X_SIZE, Y_SIZE) do |img|
+      img.background_color = IM_COLORS[15]
+    end
+    @pri_target = Magick::Image.new(X_SIZE, Y_SIZE) do |img|
+      img.background_color = IM_COLORS[4]
+    end
 
     @paths = []
     @fills = []
@@ -38,14 +35,15 @@ class PicRenderer
     (y * @upscale_sy).round
   end
 
-
   def upscale(width)
     @upscale_w = width
     @upscale_h = height_for(width)
     @upscale_sx = width.to_f / X_SIZE.to_f
     @upscale_sy = @upscale_h.to_f / Y_SIZE.to_f
 
-    @up_target = ChunkyPNG::Image.new(@upscale_w, @upscale_h, PicRenderer.white)
+    @up_target = Magick::Image.new(@upscale_w, @upscale_h) do |img|
+      img.background_color = IM_COLORS[15]
+    end
   end
 
   def nib(n)
@@ -78,7 +76,7 @@ class PicRenderer
         @draw_pic = false
         @ip += 1
       when CMDS[:pri_color]
-        @pri_color = ChunkyPNG::Color.from_hex(COLORS[@cmds[@ip + 1]])
+        @pri_color = @cmds[@ip + 1]
         @draw_pri = true
         @ip += 2
       when CMDS[:disable_pri]
@@ -139,11 +137,11 @@ class PicRenderer
     return if x < 0 || y < 0
     if @draw_pic
       buffer = target == :upscaled ? @up_target : @pic_target
-      return if x >= buffer.width || y >= buffer.height
-      buffer[x, y] = ChunkyPNG::Color.from_hex(COLORS[@pic_color])
+      return if x >= buffer.columns || y >= buffer.rows
+      buffer.pixel_color(x, y, IM_COLORS[@pic_color])
     end
-    return if x >= @pri_target.width || y >= @pri_target.height
-    @pri_target[x, y] = @pri_color if @draw_pri
+    return if x >= @pri_target.columns || y >= @pri_target.rows
+    @pri_target.pixel_color(x, y, IM_COLORS[@pri_color]) if @draw_pri
   end
 
   # Thanks: https://wiki.scummvm.org/index.php?title=AGI/Specifications/Pic
@@ -188,15 +186,15 @@ class PicRenderer
       next if dx >= X_SIZE || dy >= Y_SIZE
       next if bitmap[dy][dx] == 0
 
-      pic_val = @up_target[x, y]
-      next if @pic_color != PicRenderer.white && pic_val != PicRenderer.white
-      next if @pic_color == PicRenderer.white && pic_val == PicRenderer.white
+      pic_val = @up_target.pixel_color(x, y)
+      next if @pic_color != 15 && pic_val != IM_COLORS[15]
+      next if @pic_color == 15 && pic_val == IM_COLORS[15]
 
-      @up_target[x, y] = ChunkyPNG::Color.from_hex(COLORS[@pic_color])
+      @up_target.pixel_color(x, y, IM_COLORS[@pic_color])
       queue << [x - 1, y] if x > 0
-      queue << [x + 1, y] if x < @up_target.width - 1
+      queue << [x + 1, y] if x < @up_target.columns - 1
       queue << [x, y - 1] if y > 0
-      queue << [x, y + 1] if y < @up_target.height - 1
+      queue << [x, y + 1] if y < @up_target.rows - 1
     end
   end
 
@@ -211,26 +209,26 @@ class PicRenderer
 
       if @draw_pic
         bitmap[y][x] = 1
-        pic_val = @pic_target[x, y]
-        next if @pic_color != PicRenderer.white && pic_val != PicRenderer.white
-        next if @pic_color == PicRenderer.white && pic_val == PicRenderer.white
+        pic_val = @pic_target.pixel_color(x, y)
+        next if @pic_color != 15 && pic_val != IM_COLORS[15]
+        next if @pic_color == 15 && pic_val == IM_COLORS[15]
 
-        @pic_target[x, y] = ChunkyPNG::Color.from_hex(COLORS[@pic_color])
+        @pic_target.pixel_color(x, y, IM_COLORS[@pic_color])
         queue << [x - 1, y] if x > 0
-        queue << [x + 1, y] if x < @pic_target.width - 1
+        queue << [x + 1, y] if x < @pic_target.columns - 1
         queue << [x, y - 1] if y > 0
-        queue << [x, y + 1] if y < @pic_target.height - 1
+        queue << [x, y + 1] if y < @pic_target.rows - 1
       end
 
       if @draw_pri
-        pri_val = @pri_target[x, y]
-        @pri_target[x, y] = @pri_color
-        next if pri_val != PicRenderer.red
+        pri_val = @pri_target.pixel_color(x, y)
+        @pri_target.pixel_color(x, y, IM_COLORS[@pri_color])
+        next if pri_val != IM_COLORS[4]
 
         queue << [x - 1, y] if x > 0
-        queue << [x + 1, y] if x < @pri_target.width - 1
+        queue << [x + 1, y] if x < @pri_target.columns - 1
         queue << [x, y - 1] if y > 0
-        queue << [x, y + 1] if y < @pri_target.height - 1
+        queue << [x, y + 1] if y < @pri_target.rows - 1
       end
     end
 
@@ -273,27 +271,31 @@ class PicRenderer
   end
 
   def write(width: 160)
-    output = @pic_target.dup
-    output.resample_nearest_neighbor!(width, height_for(width)) if width != 160
-    output.save("tmp.png")
+    @pic_target.sample!(width, height_for(width)) if width != 160
+    @pic_target.write("tmp.png")
 
     if upscaling?
+      gc = Magick::Draw.new
+      gc.stroke_linejoin('round')
+
       @paths.each do |path|
         prev = path.points[0]
         (1...path.points.size).each do |idx|
           p = path.points[idx]
 
-          @up_target.line(
-            upscale_x(prev[0]), 
+          gc.stroke(COLORS[path.color])
+          gc.stroke_width(3)
+          gc.line(
+            upscale_x(prev[0]),
             upscale_y(prev[1]),
-            upscale_x(p[0]), 
+            upscale_x(p[0]),
             upscale_y(p[1]),
-            ChunkyPNG::Color.from_hex(COLORS[path.color])
           )
           prev = p
         end
       end
-      @up_target.save("up.png")
+      gc.draw(@up_target)
+      @up_target.write("up.png")
     end
 
   end
