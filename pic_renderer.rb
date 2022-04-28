@@ -158,10 +158,10 @@ class PicRenderer
       x, y = queue.pop
 
       if @draw_pic
+        bitmap[y][x] = 1
         pic_val = @pic_target[x, y]
         next if @pic_color != PicRenderer.white && pic_val != PicRenderer.white
         next if @pic_color == PicRenderer.white && pic_val == PicRenderer.white
-        bitmap[y][x] = 1
 
         @pic_target[x, y] = ChunkyPNG::Color.from_hex(COLORS[@pic_color])
         queue << [x - 1, y] if x > 0
@@ -237,23 +237,66 @@ class PicRenderer
 
       COLORS.each do |id, col|
         css[".c-#{id} rect"] = { fill: col, stroke_width: 0 }
+        css[".c-#{id} polygon"] = { fill: col, stroke_width: 0 }
         css[".c-#{id} line"] = { stroke: col, stroke_width: y_scale }
       end
 
       fills.each do |fill|
         color, bitmap = fill
 
-        g(class: "c-#{color}", filter: 'url(#bg-blur)') do
-          (0...Y_SIZE).each do |y|
-            (0...X_SIZE).each do |x|
-              if bitmap[y][x] == 1
-                rect(
-                  x: (x * x_scale).floor,
-                  y: (y * y_scale).floor,
-                  width: x_scale.ceil,
-                  height: y_scale.ceil
-                )
+        g(class: "c-#{color}", no_filter: 'url(#bg-blur)') do
+          (1...Y_SIZE - 1).each do |y|
+            (1...X_SIZE - 1).each do |x|
+              next if bitmap[y][x] == 0
+
+              mask =
+                bitmap[y - 1][x] +
+                (2 * bitmap[y][x + 1]) +
+                (4 * bitmap[y + 1][x]) +
+                (8 * bitmap[y][x - 1])
+
+              x0 = (x * x_scale).floor
+              x1 = x0 + (x_scale / 2.0)
+              x2 = (x0 + x_scale).ceil
+              y0 = (y * y_scale).floor
+              y1 = y0 + (y_scale / 2.0)
+              y2 = (y0 + y_scale).ceil
+
+              case mask
+              when 1
+                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x1},#{y1}")
+              when 2
+                polygon(points: "#{x2},#{y0} #{x2},#{y2} #{x1},#{y1}")
+              when 3
+                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x2},#{y2}")
+              when 4
+                polygon(points: "#{x1},#{y1} #{x2},#{y2} #{x0},#{y2}")
+              when 5
+                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x1},#{y1}")
+                polygon(points: "#{x1},#{y1} #{x2},#{y2} #{x0},#{y2}")
+              when 6
+                polygon(points: "#{x2},#{y0} #{x2},#{y2} #{x0},#{y2}")
+              when 7
+                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x2},#{y2} #{x0},#{y2} #{x1},#{y1}")
+              when 8
+                polygon(points: "#{x0},#{y0} #{x1},#{y1} #{x0},#{y2}")
+              when 9
+                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x0},#{y2}")
+              when 10
+                polygon(points: "#{x0},#{y0} #{x1},#{y1} #{x0},#{y2}")
+                polygon(points: "#{x2},#{y0} #{x2},#{y2} #{x1},#{y1}")
+              when 11
+                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x2},#{y2} #{x1},#{y1} #{x0},#{y2}")
+              when 12
+                polygon(points: "#{x0},#{y0} #{x2},#{y2} #{x0},#{y2}")
+              when 13
+                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x1},#{y1} #{x2},#{y2} #{x0},#{y2}")
+              when 14
+                polygon(points: "#{x0},#{y0} #{x1},#{y1} #{x2},#{y0} #{x2},#{y2} #{x0},#{y2}")
+              when 15
+                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x2},#{y2} #{x0},#{y2}")
               end
+
             end
           end
         end

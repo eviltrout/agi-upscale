@@ -17,8 +17,8 @@ loader.setup
 cmds = loader.load((ARGV[0] || '1').to_i)
 renderer = PicRenderer.new(cmds)
 renderer.render
-renderer.write(width: 1000)
-renderer.write_vector(width: 1000)
+renderer.write(width: 320)
+# renderer.write_vector(width: 1000)
 
 # puts "id,cmds_size,col_size,pri_size"
 # loader.db.keys.each do |id|
