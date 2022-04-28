@@ -11,7 +11,6 @@ class PicRenderer
     end
 
     @paths = []
-    @fills = []
     @draw_pic = true
     @draw_pri = false
 
@@ -108,6 +107,14 @@ class PicRenderer
         @ip += 3
 
         pset(@x, @y)
+        if upscaling? && !not_cmd?
+          sz = @upscale_sy * 0.5
+          gc = Magick::Draw.new
+          gc.stroke_width(0)
+          gc.fill(COLORS[@pic_color])
+          gc.circle(upscale_x(@x), upscale_y(@y), upscale_x(@x) - sz, upscale_y(@y))
+          gc.draw(@up_target)
+        end
 
         while not_cmd?
           nx = @cmds[@ip] >> 4
@@ -181,9 +188,13 @@ class PicRenderer
     while !queue.empty?
       x, y = queue.pop
 
-      dx = (x.to_f / @upscale_sx).round
-      dy = (y.to_f / @upscale_sy).round
-      next if dx >= X_SIZE || dy >= Y_SIZE
+      fx = (x.to_f / @upscale_sx)
+      fy = (y.to_f / @upscale_sy)
+      next if fx.ceil >= X_SIZE || fy.ceil >= Y_SIZE
+
+      dx = fx.round
+      dy = fy.round
+
       next if bitmap[dy][dx] == 0
 
       pic_val = @up_target.pixel_color(x, y)
@@ -232,7 +243,6 @@ class PicRenderer
       end
     end
 
-    @fills << [@pic_color, bitmap] if @draw_pic
     bitmap
   end
 
@@ -277,130 +287,17 @@ class PicRenderer
     if upscaling?
       gc = Magick::Draw.new
       gc.stroke_linejoin('round')
+      gc.stroke_width(@upscale_sy)
+      gc.fill_opacity(0)
 
       @paths.each do |path|
-        prev = path.points[0]
-        (1...path.points.size).each do |idx|
-          p = path.points[idx]
-
-          gc.stroke(COLORS[path.color])
-          gc.stroke_width(3)
-          gc.line(
-            upscale_x(prev[0]),
-            upscale_y(prev[1]),
-            upscale_x(p[0]),
-            upscale_y(p[1]),
-          )
-          prev = p
-        end
+        gc.stroke(COLORS[path.color])
+        scaled = path.points.map { |p| [upscale_x(p[0]), upscale_y(p[1])] }.flatten
+        gc.polyline(*scaled)
       end
       gc.draw(@up_target)
       @up_target.write("up.png")
     end
-
-  end
-
-  def write_svg(width: 1000)
-    x_scale = width.to_f / X_SIZE.to_f
-    y_scale = height_for(width).to_f / Y_SIZE.to_f
-
-    svg = Victor::SVG.new width: width, height: height_for(width), style: { background: '#fff' }
-
-    paths, fills = @paths, @fills
-
-    svg.build do
-      defs do
-        filter(id: 'bg-blur', x: 0, y: 0) do
-          svg.element 'feGaussianBlur', in: 'SourceGraphic', stdDeviation: 4
-        end
-      end
-
-      COLORS.each do |id, col|
-        css[".c-#{id} rect"] = { fill: col, stroke_width: 0 }
-        css[".c-#{id} polygon"] = { fill: col, stroke_width: 0 }
-        css[".c-#{id} line"] = { stroke: col, stroke_width: y_scale }
-      end
-
-      fills.each do |fill|
-        color, bitmap = fill
-
-        g(class: "c-#{color}", no_filter: 'url(#bg-blur)') do
-          (1...Y_SIZE - 1).each do |y|
-            (1...X_SIZE - 1).each do |x|
-              next if bitmap[y][x] == 0
-
-              mask =
-                bitmap[y - 1][x] +
-                (2 * bitmap[y][x + 1]) +
-                (4 * bitmap[y + 1][x]) +
-                (8 * bitmap[y][x - 1])
-
-              x0 = (x * x_scale).floor
-              x1 = x0 + (x_scale / 2.0)
-              x2 = (x0 + x_scale).ceil
-              y0 = (y * y_scale).floor
-              y1 = y0 + (y_scale / 2.0)
-              y2 = (y0 + y_scale).ceil
-
-              case mask
-              when 1
-                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x1},#{y1}")
-              when 2
-                polygon(points: "#{x2},#{y0} #{x2},#{y2} #{x1},#{y1}")
-              when 3
-                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x2},#{y2}")
-              when 4
-                polygon(points: "#{x1},#{y1} #{x2},#{y2} #{x0},#{y2}")
-              when 5
-                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x1},#{y1}")
-                polygon(points: "#{x1},#{y1} #{x2},#{y2} #{x0},#{y2}")
-              when 6
-                polygon(points: "#{x2},#{y0} #{x2},#{y2} #{x0},#{y2}")
-              when 7
-                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x2},#{y2} #{x0},#{y2} #{x1},#{y1}")
-              when 8
-                polygon(points: "#{x0},#{y0} #{x1},#{y1} #{x0},#{y2}")
-              when 9
-                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x0},#{y2}")
-              when 10
-                polygon(points: "#{x0},#{y0} #{x1},#{y1} #{x0},#{y2}")
-                polygon(points: "#{x2},#{y0} #{x2},#{y2} #{x1},#{y1}")
-              when 11
-                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x2},#{y2} #{x1},#{y1} #{x0},#{y2}")
-              when 12
-                polygon(points: "#{x0},#{y0} #{x2},#{y2} #{x0},#{y2}")
-              when 13
-                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x1},#{y1} #{x2},#{y2} #{x0},#{y2}")
-              when 14
-                polygon(points: "#{x0},#{y0} #{x1},#{y1} #{x2},#{y0} #{x2},#{y2} #{x0},#{y2}")
-              when 15
-                polygon(points: "#{x0},#{y0} #{x2},#{y0} #{x2},#{y2} #{x0},#{y2}")
-              end
-
-            end
-          end
-        end
-      end
-
-      paths.each do |path|
-        prev = path.points[0]
-        g(class: "c-#{path.color}") do
-          (1...path.points.size).each do |idx|
-            p = path.points[idx]
-
-            line(
-              x1: (prev[0] * x_scale),
-              y1: (prev[1] * y_scale),
-              x2: (p[0] * x_scale),
-              y2: (p[1] * y_scale)
-            )
-            prev = p
-          end
-        end
-      end
-    end
-
-    svg.save("vec.svg")
   end
 
 end
