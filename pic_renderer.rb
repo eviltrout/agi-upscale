@@ -3,14 +3,11 @@
 class PicRenderer
 
   def initialize(cmds)
-    @pic_target = Magick::Image.new(X_SIZE, Y_SIZE) do |img|
-      img.background_color = IM_COLORS[15]
-    end
-    @pri_target = Magick::Image.new(X_SIZE, Y_SIZE) do |img|
-      img.background_color = IM_COLORS[4]
-    end
+    @pic_target = PicBuffer.new(X_SIZE, Y_SIZE, 15)
+    @pri_target = PicBuffer.new(X_SIZE, Y_SIZE, 4)
 
     @paths = []
+    @dots = []
     @draw_pic = true
     @draw_pri = false
 
@@ -40,9 +37,7 @@ class PicRenderer
     @upscale_sx = width.to_f / X_SIZE.to_f
     @upscale_sy = @upscale_h.to_f / Y_SIZE.to_f
 
-    @up_target = Magick::Image.new(@upscale_w, @upscale_h) do |img|
-      img.background_color = IM_COLORS[15]
-    end
+    @up_target = PicBuffer.new(@upscale_w, @upscale_h, 15)
   end
 
   def nib(n)
@@ -107,14 +102,7 @@ class PicRenderer
         @ip += 3
 
         pset(@x, @y)
-        if upscaling? && !not_cmd?
-          sz = @upscale_sy * 0.5
-          gc = Magick::Draw.new
-          gc.stroke_width(0)
-          gc.fill(COLORS[@pic_color])
-          gc.circle(upscale_x(@x), upscale_y(@y), upscale_x(@x) - sz, upscale_y(@y))
-          gc.draw(@up_target)
-        end
+        @dots << [@x, @y, @pic_color] if upscaling? && !not_cmd?
 
         while not_cmd?
           nx = @cmds[@ip] >> 4
@@ -144,11 +132,9 @@ class PicRenderer
     return if x < 0 || y < 0
     if @draw_pic
       buffer = target == :upscaled ? @up_target : @pic_target
-      return if x >= buffer.columns || y >= buffer.rows
-      buffer.pixel_color(x, y, IM_COLORS[@pic_color])
+      buffer[x, y] = @pic_color
     end
-    return if x >= @pri_target.columns || y >= @pri_target.rows
-    @pri_target.pixel_color(x, y, IM_COLORS[@pri_color]) if @draw_pri
+    @pri_target[x, y] = @pri_color if @draw_pri
   end
 
   # Thanks: https://wiki.scummvm.org/index.php?title=AGI/Specifications/Pic
@@ -195,51 +181,50 @@ class PicRenderer
       dx = fx.round
       dy = fy.round
 
-      next if bitmap[dy][dx] == 0
+      next if bitmap[dx, dy] == 0
 
-      pic_val = @up_target.pixel_color(x, y)
-      next if @pic_color != 15 && pic_val != IM_COLORS[15]
-      next if @pic_color == 15 && pic_val == IM_COLORS[15]
+      pic_val = @up_target[x, y]
+      next if @pic_color != 15 && pic_val != 15
+      next if @pic_color == 15 && pic_val == 15
 
-      @up_target.pixel_color(x, y, IM_COLORS[@pic_color])
+      @up_target[x, y] = @pic_color
       queue << [x - 1, y] if x > 0
-      queue << [x + 1, y] if x < @up_target.columns - 1
+      queue << [x + 1, y] if x < @up_target.width - 1
       queue << [x, y - 1] if y > 0
-      queue << [x, y + 1] if y < @up_target.rows - 1
+      queue << [x, y + 1] if y < @up_target.height - 1
     end
   end
 
   def fill(x, y)
     queue = [[x, y]]
 
-    bitmap = []
-    Y_SIZE.times { bitmap << Array.new(X_SIZE, 0) }
+    bitmap = PicBuffer.new(X_SIZE, Y_SIZE)
 
     while !queue.empty?
       x, y = queue.pop
 
       if @draw_pic
-        bitmap[y][x] = 1
-        pic_val = @pic_target.pixel_color(x, y)
-        next if @pic_color != 15 && pic_val != IM_COLORS[15]
-        next if @pic_color == 15 && pic_val == IM_COLORS[15]
+        bitmap[x, y] = 1
+        pic_val = @pic_target[x, y]
+        next if @pic_color != 15 && pic_val != 15
+        next if @pic_color == 15 && pic_val == 15
 
-        @pic_target.pixel_color(x, y, IM_COLORS[@pic_color])
+        @pic_target[x, y] = @pic_color
         queue << [x - 1, y] if x > 0
-        queue << [x + 1, y] if x < @pic_target.columns - 1
+        queue << [x + 1, y] if x < @pic_target.width - 1
         queue << [x, y - 1] if y > 0
-        queue << [x, y + 1] if y < @pic_target.rows - 1
+        queue << [x, y + 1] if y < @pic_target.height - 1
       end
 
       if @draw_pri
-        pri_val = @pri_target.pixel_color(x, y)
-        @pri_target.pixel_color(x, y, IM_COLORS[@pri_color])
-        next if pri_val != IM_COLORS[4]
+        pri_val = @pri_target[x, y]
+        next if pri_val != 4
+        @pri_target[x, y] = @pri_color
 
         queue << [x - 1, y] if x > 0
-        queue << [x + 1, y] if x < @pri_target.columns - 1
+        queue << [x + 1, y] if x < @pri_target.width - 1
         queue << [x, y - 1] if y > 0
-        queue << [x, y + 1] if y < @pri_target.rows - 1
+        queue << [x, y + 1] if y < @pri_target.height - 1
       end
     end
 
@@ -281,11 +266,22 @@ class PicRenderer
   end
 
   def write(width: 160)
-    @pic_target.sample!(width, height_for(width)) if width != 160
-    @pic_target.write("tmp.png")
+
+    output = @pic_target.to_magick
+    output.sample!(width, height_for(width)) if width != 160
+    output.write("tmp.png")
 
     if upscaling?
+      up_output = @up_target.to_magick
       gc = Magick::Draw.new
+
+      sz = @upscale_sy * 0.5
+      @dots.each do |d|
+        gc.stroke_width(0)
+        gc.fill(COLORS[d[2]])
+        gc.circle(upscale_x(d[0]), upscale_y(d[1]), upscale_x(d[0]) - sz, upscale_y(d[1]))
+      end
+
       gc.stroke_linejoin('round')
       gc.stroke_width(@upscale_sy)
       gc.fill_opacity(0)
@@ -295,8 +291,9 @@ class PicRenderer
         scaled = path.points.map { |p| [upscale_x(p[0]), upscale_y(p[1])] }.flatten
         gc.polyline(*scaled)
       end
-      gc.draw(@up_target)
-      @up_target.write("up.png")
+
+      gc.draw(up_output)
+      up_output.write("up.png")
     end
   end
 

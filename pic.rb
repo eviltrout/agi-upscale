@@ -7,6 +7,7 @@ Bundler.require(:default)
 
 require './constants'
 require './helpers'
+require './pic_buffer'
 require './pic_path'
 require './pic_loader'
 require './pic_renderer'
