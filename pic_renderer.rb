@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'set'
+
 class PicRenderer
 
   def initialize(cmds)
@@ -10,6 +12,9 @@ class PicRenderer
     @dots = []
     @draw_pic = true
     @draw_pri = false
+
+    @edge_queue = Set.new
+    @edges = Set.new
 
     @current_path = nil
     @cmds = cmds
@@ -56,6 +61,8 @@ class PicRenderer
   def start_path
     end_path
     @current_path = PicPath.new(@pic_color, @x, @y)
+    @edge_queue.each { |e| @edges << e }
+    @edge_queue = Set.new
   end
 
   def render
@@ -116,7 +123,7 @@ class PicRenderer
         @ip += 1
         while not_cmd?
           bitmap = fill(@cmds[@ip], @cmds[@ip + 1])
-          upscale_fill(bitmap, @cmds[@ip], @cmds[@ip + 1])
+          # upscale_fill(bitmap, @cmds[@ip], @cmds[@ip + 1])
           @ip += 2
         end
       when CMDS[:end]
@@ -133,12 +140,14 @@ class PicRenderer
     if @draw_pic
       buffer = target == :upscaled ? @up_target : @pic_target
       buffer[x, y] = @pic_color
+      @edge_queue << [x, y]
     end
     @pri_target[x, y] = @pri_color if @draw_pri
   end
 
   # Thanks: https://wiki.scummvm.org/index.php?title=AGI/Specifications/Pic
   def draw_line(x1, y1, x2, y2, target = :default)
+
     height = y2 - y1
     width = x2 - x1
     addX = height == 0 ? height : width.to_f / height.abs
@@ -176,12 +185,12 @@ class PicRenderer
 
       fx = (x.to_f / @upscale_sx)
       fy = (y.to_f / @upscale_sy)
-      next if fx.ceil >= X_SIZE || fy.ceil >= Y_SIZE
+      next if fx.ceil > X_SIZE - 1 || fy.ceil > Y_SIZE - 1
 
       dx = fx.round
       dy = fy.round
 
-      next if bitmap[dx, dy] == 0
+      # next if bitmap[dx, dy] == 0
 
       pic_val = @up_target[x, y]
       next if @pic_color != 15 && pic_val != 15
@@ -231,6 +240,18 @@ class PicRenderer
     bitmap
   end
 
+  def upscale_fix(x, y, offset_x, offset_y)
+    return false unless @edges.include?([x + offset_x, y + offset_y])
+    draw_line(
+      upscale_x(x + offset_x),
+      upscale_y(y + offset_y),
+      upscale_x(x),
+      upscale_y(y),
+      :upscaled
+    )
+    true
+  end
+
   def line_to(x, y)
     start_path if @draw_pic && @current_path.nil?
 
@@ -238,6 +259,22 @@ class PicRenderer
 
     if upscaling?
       draw_line(upscale_x(@x), upscale_y(@y), upscale_x(x), upscale_y(y), :upscaled)
+      upscale_fix(@x, @y, -1, -1) ||
+        upscale_fix(@x, @y, 0, -1) ||
+        upscale_fix(@x, @y, 1, -1) ||
+        upscale_fix(@x, @y, -1, 0) ||
+        upscale_fix(@x, @y, 1, 0) ||
+        upscale_fix(@x, @y, -1, 1) ||
+        upscale_fix(@x, @y, 0, 1) ||
+        upscale_fix(@x, @y, 1, 1)
+      upscale_fix(x, y, -1, -1) ||
+        upscale_fix(x, y, 0, -1) ||
+        upscale_fix(x, y, 1, -1) ||
+        upscale_fix(x, y, -1, 0) ||
+        upscale_fix(x, y, 1, 0) ||
+        upscale_fix(x, y, -1, 1) ||
+        upscale_fix(x, y, 0, 1) ||
+        upscale_fix(x, y, 1, 1)
     end
 
     @current_path.add_point(x, y) if @draw_pic
@@ -292,7 +329,7 @@ class PicRenderer
         gc.polyline(*scaled)
       end
 
-      gc.draw(up_output)
+      # gc.draw(up_output)
       up_output.write("up.png")
     end
   end
