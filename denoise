@@ -1,0 +1,9 @@
+#!/bin/bash
+
+convert \
+up.png \
+-define connected-components:verbose=true \
+-define connected-components:area-threshold=100 \
+-define connected-components:mean-color=true \
+-connected-components 8 \
+noiseless.png

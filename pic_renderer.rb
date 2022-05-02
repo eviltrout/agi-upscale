@@ -4,7 +4,7 @@ require 'set'
 
 class PicRenderer
 
-  def initialize(cmds)
+  def initialize(data)
     @pic_target = PicBuffer.new(X_SIZE, Y_SIZE, 15)
     @pri_target = PicBuffer.new(X_SIZE, Y_SIZE, 4)
 
@@ -13,12 +13,8 @@ class PicRenderer
     @draw_pic = true
     @draw_pri = false
 
-    @edge_queue = Set.new
-    @edges = Set.new
-
     @current_path = nil
-    @cmds = cmds
-    @ip = 0
+    @data = data
     @pic_color = 0
     @x = 0
     @y = 0
@@ -29,11 +25,11 @@ class PicRenderer
   end
 
   def upscale_x(x)
-    (x * @upscale_sx).round
+    (x.to_f * @upscale_sx).round
   end
 
   def upscale_y(y)
-    (y * @upscale_sy).round
+    (y.to_f * @upscale_sy).round
   end
 
   def upscale(width)
@@ -45,14 +41,6 @@ class PicRenderer
     @up_target = PicBuffer.new(@upscale_w, @upscale_h, 15)
   end
 
-  def nib(n)
-    (n & 0b0111) * (n & 0b1000 == 0b1000 ? -1 : 1)
-  end
-
-  def not_cmd?
-    @cmds[@ip] < 0xf0
-  end
-
   def end_path
     @paths << @current_path if @current_path
     @current_path = nil
@@ -61,76 +49,62 @@ class PicRenderer
   def start_path
     end_path
     @current_path = PicPath.new(@pic_color, @x, @y)
-    @edge_queue.each { |e| @edges << e }
-    @edge_queue = Set.new
   end
 
   def render
-    while @ip < @cmds.size
+    return if @data.nil?
+
+    while @data.has_more?
       end_path
-      case @cmds[@ip]
+      cmd = @data.next_byte
+
+      case cmd
       when CMDS[:pic_color]
-        @pic_color = @cmds[@ip + 1]
+        @pic_color = @data.next_byte
         @draw_pic = true
-        @ip += 2
       when CMDS[:disable_pic]
         @draw_pic = false
-        @ip += 1
       when CMDS[:pri_color]
-        @pri_color = @cmds[@ip + 1]
+        @pri_color = @data.next_byte
         @draw_pri = true
-        @ip += 2
       when CMDS[:disable_pri]
         @draw_pri = false
-        @ip += 1
       when CMDS[:y_corner]
-        @x = @cmds[@ip + 1]
-        @y = @cmds[@ip + 2]
-        @ip += 3
+        @x, @y = @data.next_word
         draw_corner(:y)
       when CMDS[:x_corner]
-        @x = @cmds[@ip + 1]
-        @y = @cmds[@ip + 2]
-        @ip += 3
+        @x, @y = @data.next_word
         draw_corner(:x)
       when CMDS[:abs_line]
-        @x = @cmds[@ip + 1]
-        @y = @cmds[@ip + 2]
-        @ip += 3
-        while not_cmd?
-          nx = @cmds[@ip]
-          ny = @cmds[@ip + 1]
+        @x, @y = @data.next_word
+        while @data.not_cmd?
+          nx, ny = @data.next_word
           line_to(nx, ny)
-          @ip += 2
         end
       when CMDS[:rel_line]
-        @x = @cmds[@ip + 1]
-        @y = @cmds[@ip + 2]
-        @ip += 3
-
+        @x, @y = @data.next_word
         pset(@x, @y)
-        @dots << [@x, @y, @pic_color] if upscaling? && !not_cmd?
+        @dots << [@x, @y, @pic_color] if upscaling? && !@data.not_cmd?
 
-        while not_cmd?
-          nx = @cmds[@ip] >> 4
+        while @data.not_cmd?
+          b = @data.next_byte
+          nx = b >> 4
           nx = (nx & 0b0111) * (nx & 0b1000 == 0b1000 ? -1 : 1)
-          ny = @cmds[@ip] & 0b00001111
+          ny = b & 0b00001111
           ny = (ny & 0b0111) * (ny & 0b1000 == 0b1000 ? -1 : 1)
           line_to(@x + nx, @y + ny)
-          @ip += 1
         end
       when CMDS[:fill]
-        @ip += 1
-        while not_cmd?
-          bitmap = fill(@cmds[@ip], @cmds[@ip + 1])
-          # upscale_fill(bitmap, @cmds[@ip], @cmds[@ip + 1])
-          @ip += 2
+        while @data.not_cmd?
+          fx, fy = @data.next_word
+          bitmap = fill(fx, fy)
+          upscale_fill(bitmap, fx, fy)
         end
       when CMDS[:end]
         return
       else
         puts "unrecognized cmd: #{cmd.to_s(16)}"
-        @ip += 1
+        exit
       end
     end
   end
@@ -140,13 +114,14 @@ class PicRenderer
     if @draw_pic
       buffer = target == :upscaled ? @up_target : @pic_target
       buffer[x, y] = @pic_color
-      @edge_queue << [x, y]
     end
     @pri_target[x, y] = @pri_color if @draw_pri
   end
 
   # Thanks: https://wiki.scummvm.org/index.php?title=AGI/Specifications/Pic
   def draw_line(x1, y1, x2, y2, target = :default)
+
+    points = Set.new
 
     height = y2 - y1
     width = x2 - x1
@@ -158,22 +133,28 @@ class PicRenderer
       y = y1
       addX = width == 0 ? 0 : (width / width.abs)
       while x != x2
-        pset(sierra_round(x, addX), sierra_round(y, addY), target)
+        px = sierra_round(x, addX)
+        py = sierra_round(y, addY)
+        points << [px, py]
         x += addX
         y += addY
       end
-      pset(x2, y2, target)
+      points << [x2, y2]
     else
       x = x1
       y = y1
       addY = height == 0 ? 0 : (height / height.abs)
       while y != y2
-        pset(sierra_round(x, addX), sierra_round(y, addY), target)
+        px = sierra_round(x, addX)
+        py = sierra_round(y, addY)
+        points << [px, py]
         x += addX
         y += addY
       end
-      pset(x2, y2, target)
+      points << [x2, y2]
     end
+    points.each { |p| pset(p[0], p[1], target) }
+    points
   end
 
   def upscale_fill(bitmap, x, y)
@@ -190,7 +171,7 @@ class PicRenderer
       dx = fx.round
       dy = fy.round
 
-      # next if bitmap[dx, dy] == 0
+      next if bitmap[dx, dy] == 0
 
       pic_val = @up_target[x, y]
       next if @pic_color != 15 && pic_val != 15
@@ -240,41 +221,58 @@ class PicRenderer
     bitmap
   end
 
-  def upscale_fix(x, y, offset_x, offset_y)
-    return false unless @edges.include?([x + offset_x, y + offset_y])
-    draw_line(
-      upscale_x(x + offset_x),
-      upscale_y(y + offset_y),
-      upscale_x(x),
-      upscale_y(y),
-      :upscaled
-    )
-    true
+  def find_point(x, y)
+    x0, x1 = upscale_x(x - 0.5), upscale_x(x + 0.5)
+    y0, y1 = upscale_y(y - 0.5), upscale_y(y + 0.5)
+
+    (y0...y1).each do |j|
+      (x0...x1).each do |i|
+        return [i, j] if @up_target[i, j] != 15
+      end
+    end
+    nil
+  end
+
+  def upscale_fix2(points, p, offset_x, offset_y)
+    x0, y0 = p
+    x1 = x0 + offset_x
+    y1 = y0 + offset_y
+
+    return if x1 < 0 || x1 > X_SIZE - 1 || y1 < 0 || y1 > Y_SIZE - 1
+    return if points.include?([x1, y1])
+    mask = @pic_target[x1, y1]
+
+    if mask != 15
+      from = [x0, y0]
+      to = [x1, y1]
+
+      start = find_point(x0, y0)
+      stop = find_point(x1, y1)
+      if start && stop
+        draw_line(start[0], start[1], stop[0], stop[1], :upscaled)
+        return true
+      end
+    end
+    false
   end
 
   def line_to(x, y)
     start_path if @draw_pic && @current_path.nil?
+    points = draw_line(@x, @y, x, y)
 
-    draw_line(@x, @y, x, y)
-
-    if upscaling?
+    if upscaling? && points.size > 0
       draw_line(upscale_x(@x), upscale_y(@y), upscale_x(x), upscale_y(y), :upscaled)
-      upscale_fix(@x, @y, -1, -1) ||
-        upscale_fix(@x, @y, 0, -1) ||
-        upscale_fix(@x, @y, 1, -1) ||
-        upscale_fix(@x, @y, -1, 0) ||
-        upscale_fix(@x, @y, 1, 0) ||
-        upscale_fix(@x, @y, -1, 1) ||
-        upscale_fix(@x, @y, 0, 1) ||
-        upscale_fix(@x, @y, 1, 1)
-      upscale_fix(x, y, -1, -1) ||
-        upscale_fix(x, y, 0, -1) ||
-        upscale_fix(x, y, 1, -1) ||
-        upscale_fix(x, y, -1, 0) ||
-        upscale_fix(x, y, 1, 0) ||
-        upscale_fix(x, y, -1, 1) ||
-        upscale_fix(x, y, 0, 1) ||
-        upscale_fix(x, y, 1, 1)
+
+      points.each do |p|
+        upscale_fix2(points, p, -1, -1) ||
+        upscale_fix2(points, p, 0, -1) ||
+        upscale_fix2(points, p, 1, -1) ||
+        upscale_fix2(points, p, -1, 0) ||
+        upscale_fix2(points, p, 1, 0) ||
+        upscale_fix2(points, p, -1, 1) ||
+        upscale_fix2(points, p, 0, 1) ||
+        upscale_fix2(points, p, 1, 1)
+      end
     end
 
     @current_path.add_point(x, y) if @draw_pic
@@ -283,15 +281,13 @@ class PicRenderer
   end
 
   def draw_corner(direction)
-    cmd = @cmds[@ip]
-    if not_cmd?
+    if @data.not_cmd?
+      loc = @data.next_byte
       if direction == :x
-        line_to(cmd, @y)
-        @ip += 1
+        line_to(loc, @y)
         draw_corner(:y)
       else
-        line_to(@x, cmd)
-        @ip += 1
+        line_to(@x, loc)
         draw_corner(:x)
       end
     end
@@ -302,16 +298,45 @@ class PicRenderer
     (width * 0.5 * ratio).round
   end
 
-  def write(width: 160)
-
+  def write(fn, width: 160)
     output = @pic_target.to_magick
     output.sample!(width, height_for(width)) if width != 160
     output.write("tmp.png")
 
     if upscaling?
-      up_output = @up_target.to_magick
-      gc = Magick::Draw.new
+      1.times do
+        (1...@up_target.height - 2).each do |y|
+          (1...@up_target.width - 2).each do |x|
+            c0 = @up_target[x - 1, y]
+            c1 = @up_target[x, y]
+            c2 = @up_target[x + 1, y]
 
+            if c0 != c1 && c1 != c2
+              @up_target[x, y] = c0
+            end
+          end
+        end
+        (1...@up_target.height - 2).each do |y|
+          (1...@up_target.width - 2).each do |x|
+            c0 = @up_target[x, y - 1]
+            c1 = @up_target[x, y]
+            c2 = @up_target[x, y + 1]
+
+            if c1 != c0 && c1 != c2
+              @up_target[x, y] = c0
+            end
+          end
+        end
+      end
+
+      up_output = @up_target.to_magick
+      up_output.write("up.png")
+
+      `convert up.png -define connected-components:verbose=true -define connected-components:area-threshold=100 -define connected-components:mean-color=true -connected-components 8 noiseless.png`
+
+      denoised = Magick::Image.read("noiseless.png").first
+
+      gc = Magick::Draw.new
       sz = @upscale_sy * 0.5
       @dots.each do |d|
         gc.stroke_width(0)
@@ -329,8 +354,9 @@ class PicRenderer
         gc.polyline(*scaled)
       end
 
-      # gc.draw(up_output)
-      up_output.write("up.png")
+      gc.draw(denoised)
+
+      denoised.write(fn || "final.png")
     end
   end
 
