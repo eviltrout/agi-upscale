@@ -53,7 +53,7 @@ $ ruby pic.rb kq2 all output
 
 ### Credits
 
-Written by Robin Ward - aka @eviltrout
+* Written by Robin Ward - aka [@eviltrout](https://eviltrout.com).
 
-It would have been impossible with the [ScummVM](https://www.scummvm.org/) technical documentation
+* It would have been impossible with the [ScummVM](https://www.scummvm.org/) technical documentation
 and codebase as a reference.
