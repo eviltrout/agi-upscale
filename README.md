@@ -2,6 +2,26 @@
 
 This is a tool written in Ruby to upscale old Sierra AGI game backgrounds.
 
+### Examples
+
+Before:
+<img src="examples/kq1-sd.png" width="800px">
+
+After:
+<img src="examples/kq1-hd.png" width="800px">
+
+Before:
+<img src="examples/mh-sd.png" width="800px">
+
+After:
+<img src="examples/mh-hd.png" width="800px">
+
+Before:
+<img src="examples/sq-sd.png" width="800px">
+
+After:
+<img src="examples/sq-hd.png" width="800px">
+
 ### Installlation
 
 1. Check out the repo
