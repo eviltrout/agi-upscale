@@ -13,6 +13,8 @@ CMDS = {
   abs_line: 0xf6,
   rel_line: 0xf7,
   fill: 0xf8,
+  brush_style: 0xf9,
+  brush_draw: 0xfa,
   end: 0xff
 }
 

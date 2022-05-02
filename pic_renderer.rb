@@ -12,6 +12,8 @@ class PicRenderer
     @dots = []
     @draw_pic = true
     @draw_pri = false
+    @brush = 0x10
+    @texture = 0
 
     @current_path = nil
     @data = data
@@ -60,12 +62,12 @@ class PicRenderer
 
       case cmd
       when CMDS[:pic_color]
-        @pic_color = @data.next_byte
+        @pic_color = @data.compressed? ? @data.next_nibble : @data.next_byte
         @draw_pic = true
       when CMDS[:disable_pic]
         @draw_pic = false
       when CMDS[:pri_color]
-        @pri_color = @data.next_byte
+        @pri_color = @data.compressed? ? @data.next_nibble : @data.next_byte
         @draw_pri = true
       when CMDS[:disable_pri]
         @draw_pri = false
@@ -100,12 +102,27 @@ class PicRenderer
           bitmap = fill(fx, fy)
           upscale_fill(bitmap, fx, fy)
         end
+      when CMDS[:brush_style]
+        @brush = @data.next_byte
+      when CMDS[:brush_draw]
+        plot
       when CMDS[:end]
         return
       else
         puts "unrecognized cmd: #{cmd.to_s(16)}"
         exit
       end
+    end
+  end
+
+  def plot
+    while @data.not_cmd?
+      @texture = @data.next_byte if ((@brush & 0x20) == 0x20)
+
+      bx, by = @data.next_word
+
+      pset(bx, by)
+      @dots << [bx, by, @pic_color]
     end
   end
 
