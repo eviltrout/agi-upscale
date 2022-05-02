@@ -30,9 +30,9 @@ class PicData
 
   def next_byte
     if @on_nibble
-      n_result = (@cmds[@ip] << 4) & 0xFF
+      n_result = ((@cmds[@ip] || 0) << 4) & 0xFF
       @ip += 1
-      return (@cmds[@ip] >> 4) | n_result
+      return ((@cmds[@ip] || 0) >> 4) | n_result
     end
 
     result = @cmds[@ip]
@@ -46,11 +46,11 @@ class PicData
 
   def not_cmd?
     val = @cmds[@ip]
-    if @on_nibble
+    if @on_nibble && !val.nil? && !@cmds[@ip + 1].nil?
       val = (@cmds[@ip + 1] >> 4) | ((@cmds[@ip] << 4) & 0xFF)
     end
 
-    val < 0xf0
+    (val || 0xff) < 0xf0
   end
 
   def has_more?

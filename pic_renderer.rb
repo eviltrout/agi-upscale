@@ -115,14 +115,77 @@ class PicRenderer
     end
   end
 
+  # Ported from ScummVM
+  def pattern(x, y)
+    pen_width = 0
+    pen_final_x = 0
+    pen_final_y = 0
+    t = 0
+
+    pen_x = x
+    pen_y = y
+
+    pen_size = (@brush & 0x07)
+    circle_ptr = CIRCLE_PAT[pen_size]
+
+    pen_x = (pen_x * 2) - pen_size
+    pen_x = 0 if pen_x < 0
+
+    temp16 = (X_SIZE * 2) - (2 * pen_size)
+    pen_x = temp16 if pen_x >= temp16
+
+    pen_x /= 2
+    pen_final_x = pen_x
+
+    pen_y = pen_y - pen_size
+    pen_y = 0 if pen_y < 0
+
+    temp16 = (Y_SIZE - 1) - (2 * pen_size)
+    pen_y = temp16 if pen_y >= temp16
+    pen_final_y = pen_y
+
+    t = (@texture | 0x01) & 0xFF
+    temp16 = (pen_size << 1) + 1
+    pen_final_y += temp16
+    temp16 = temp16 << 1
+    pen_width = temp16
+
+    circleCond = ((@brush & 0x10) != 0)
+    counterStep = 4
+    ditherCond = 0x02
+
+    while pen_y < pen_final_y
+      circle_word = CIRCLE_DATA[circle_ptr]
+      circle_ptr += 1
+
+      counter = 0
+      while counter <= pen_width
+        if (circleCond || ((BINARY_PAT[counter >> 1] & circle_word) != 0))
+          if @brush & 0x20 != 0
+            temp8 = t % 2
+            t = t >> 1
+            t = t ^ 0xB8 if temp8 != 0
+          end
+
+          if ((@brush & 0x20) == 0 || (t & 0x03) == ditherCond)
+            pset(pen_x, pen_y)
+            @dots << [pen_x, pen_y, @pic_color]
+          end
+        end
+        pen_x += 1
+        counter += counterStep
+      end
+      pen_x = pen_final_x
+      pen_y += 1
+    end
+
+  end
+
   def plot
     while @data.not_cmd?
-      @texture = @data.next_byte if ((@brush & 0x20) == 0x20)
-
+      @texture = @data.next_byte if (@brush & 0x20) == 0x20
       bx, by = @data.next_word
-
-      pset(bx, by)
-      @dots << [bx, by, @pic_color]
+      pattern(bx, by)
     end
   end
 
@@ -137,7 +200,6 @@ class PicRenderer
 
   # Thanks: https://wiki.scummvm.org/index.php?title=AGI/Specifications/Pic
   def draw_line(x1, y1, x2, y2, target = :default)
-
     points = Set.new
 
     height = y2 - y1

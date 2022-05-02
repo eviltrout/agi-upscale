@@ -16,6 +16,7 @@ class PicBuffer
   end
 
   def [](x, y)
+    return nil if y < 0 || y > @height - 1
     @data[y][x]
   end
 

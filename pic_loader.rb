@@ -50,7 +50,9 @@ class PicLoader
     File.open(vol_file, 'rb') do |f|
       f.seek(offset)
       if @version == 2
-        header = f.read(5).unpack('S<CS<')
+        data = f.read(5)
+        return if data.nil?
+        header = data.unpack('S<CS<')
         return PicData.new(f.read(header[2])) if header[0] == 0x3412 && header[1] == id
       else
         header = f.read(7).unpack('S<CS<S<')
