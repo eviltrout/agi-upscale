@@ -2,6 +2,15 @@
 
 This is a tool written in Ruby to upscale old Sierra AGI game backgrounds.
 
+### Installlation
+
+1. Check out the repo
+
+2. Make sure you have ImageMagick installed.
+
+3. Run `bundle install` to install dependencies
+
+
 ### Usage
 
 You need to supply it with a directory containing the DOS version of an AGI
