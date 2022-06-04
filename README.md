@@ -1,6 +1,9 @@
 ### agi-upscale
 
-This is a tool written in Ruby to upscale old Sierra AGI game backgrounds.
+This is a tool written in Ruby to upscale old Sierra AGI game backgrounds. 
+It was the basis for a short video I authored:
+
+[How classic Sierra game graphics worked (and an attempt to upscale them)](https://www.youtube.com/watch?v=sclZDCjUVvI)
 
 ### Examples
 
